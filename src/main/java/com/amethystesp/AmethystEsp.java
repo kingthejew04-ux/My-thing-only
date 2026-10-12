@@ -51,20 +51,22 @@ import net.minecraft.world.phys.Vec3;
  *
  * Commands:
  *  - /amethystesp toggle        turns the highlighting on or off
- *  - /amethystesp range <n>     sets the scan radius in blocks (8-48, default 32)
+ *  - /amethystesp range <n>     sets the scan radius in blocks (8-128, default 64)
  *
  * The rendering code follows the Fabric docs example "Custom Render Pipeline" for Minecraft 26.2.
  */
 public class AmethystEsp implements ClientModInitializer {
 	// Settings
 	private static boolean enabled = true;
-	private static int range = 32;
+	private static int range = 64;
 	private static final int MAX_BOXES = 500;
 
 	// Scan results (written on the tick, copied into the render snapshot during extraction)
 	private static List<BlockPos> found = List.of();
 	private static List<BlockPos> snapshot = List.of();
-	private static int tickCounter = 0;
+	private static int scanDy = Integer.MAX_VALUE; // current layer being scanned (relative to scanCenter)
+	private static BlockPos scanCenter = BlockPos.ZERO;
+	private static List<BlockPos> pending = new ArrayList<>();
 
 	// Box color: purple, semi-transparent
 	private static final float RED = 0.6f;
@@ -103,7 +105,7 @@ public class AmethystEsp implements ClientModInitializer {
 						return 1;
 					}))
 				.then(ClientCommands.literal("range")
-					.then(ClientCommands.argument("blocks", IntegerArgumentType.integer(8, 48))
+					.then(ClientCommands.argument("blocks", IntegerArgumentType.integer(8, 128))
 						.executes(context -> {
 							range = IntegerArgumentType.getInteger(context, "blocks");
 							context.getSource().sendFeedback(
@@ -113,37 +115,39 @@ public class AmethystEsp implements ClientModInitializer {
 		});
 	}
 
-	/** Scans for clusters once per second. */
+	/**
+	 * Scans for clusters one horizontal layer per tick, so large ranges do not cause lag.
+	 * When every layer has been scanned, the results are published and a new scan starts
+	 * around the player's current position.
+	 */
 	private static void onTick(Minecraft client) {
 		if (!enabled || client.level == null || client.player == null) {
 			found = List.of();
+			scanDy = Integer.MAX_VALUE;
 			return;
 		}
-		tickCounter++;
-		if (tickCounter < 20) {
-			return;
-		}
-		tickCounter = 0;
 
-		BlockPos center = client.player.blockPosition();
+		// A full pass is finished (or none has started yet): publish results and start a new pass.
+		if (scanDy > range) {
+			found = List.copyOf(pending);
+			pending = new ArrayList<>();
+			scanCenter = client.player.blockPosition();
+			scanDy = -range;
+		}
+
 		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-		List<BlockPos> results = new ArrayList<>();
-
-		outer:
+		int y = scanCenter.getY() + scanDy;
 		for (int dx = -range; dx <= range; dx++) {
-			for (int dy = -range; dy <= range; dy++) {
-				for (int dz = -range; dz <= range; dz++) {
-					cursor.set(center.getX() + dx, center.getY() + dy, center.getZ() + dz);
-					if (client.level.getBlockState(cursor).is(Blocks.AMETHYST_CLUSTER)) {
-						results.add(cursor.immutable());
-						if (results.size() >= MAX_BOXES) {
-							break outer;
-						}
+			for (int dz = -range; dz <= range; dz++) {
+				cursor.set(scanCenter.getX() + dx, y, scanCenter.getZ() + dz);
+				if (client.level.getBlockState(cursor).is(Blocks.AMETHYST_CLUSTER)) {
+					if (pending.size() < MAX_BOXES) {
+						pending.add(cursor.immutable());
 					}
 				}
 			}
 		}
-		found = List.copyOf(results);
+		scanDy++;
 	}
 
 	/** Extraction phase: copy the scan results into the list used for drawing this frame. */
