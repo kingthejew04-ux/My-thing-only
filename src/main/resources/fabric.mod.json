@@ -1,0 +1,19 @@
+{
+	"schemaVersion": 1,
+	"id": "amethystesp",
+	"version": "${version}",
+	"name": "Amethyst ESP",
+	"description": "Highlights fully grown amethyst clusters with purple see-through boxes. For singleplayer use.",
+	"authors": ["You"],
+	"license": "CC0-1.0",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["com.amethystesp.AmethystEsp"]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
